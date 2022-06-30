@@ -2,6 +2,8 @@
     /// Contract's events.
     #[allow(dead_code)]
     pub mod events {
+        use crate::block::Log;
+
         use super::INTERNAL_ERR;
         #[derive(Debug, Clone, PartialEq)]
         pub struct Approval {
@@ -147,31 +149,31 @@
                 100u8,
                 150u8,
             ];
-            pub fn match_log(log: &substreams_ethereum::pb::eth::v1::Log) -> bool {
-                if log.topics.len() != 3usize {
+            pub fn match_log(log: &Log) -> bool {
+                if log.topics().len() != 3usize {
                     return false;
                 }
-                if log.data.len() != 64usize {
+                if log.data().len() != 64usize {
                     return false;
                 }
-                return log.topics.get(0).expect("bounds already checked").as_ref()
+                return log.topics().get(0).expect("bounds already checked").as_ref()
                     == Self::TOPIC_ID;
             }
             pub fn decode(
-                log: &substreams_ethereum::pb::eth::v1::Log,
+                log: &Log,
             ) -> Result<Self, String> {
                 let mut values = ethabi::decode(
                         &[
                             ethabi::ParamType::Uint(256usize),
                             ethabi::ParamType::Uint(256usize),
                         ],
-                        log.data.as_ref(),
+                        log.data().as_ref(),
                     )
                     .map_err(|e| format!("unable to decode log.data: {}", e))?;
                 Ok(Self {
                     sender: ethabi::decode(
                             &[ethabi::ParamType::Address],
-                            log.topics[1usize].as_ref(),
+                            log.topics()[1usize].as_ref(),
                         )
                         .map_err(|e| format!(
                             "unable to decode param 'sender' from topic of type 'address': {}",
@@ -185,7 +187,7 @@
                         .to_vec(),
                     to: ethabi::decode(
                             &[ethabi::ParamType::Address],
-                            log.topics[2usize].as_ref(),
+                            log.topics()[2usize].as_ref(),
                         )
                         .map_err(|e| format!(
                             "unable to decode param 'to' from topic of type 'address': {}",
@@ -209,7 +211,7 @@
                         .expect(INTERNAL_ERR),
                 })
             }
-            pub fn must_decode(log: &substreams_ethereum::pb::eth::v1::Log) -> Self {
+            pub fn must_decode(log: &Log) -> Self {
                 match Self::decode(log) {
                     Ok(v) => v,
                     Err(e) => panic!("Unable to decode logs.Burn event: {:#}", e),

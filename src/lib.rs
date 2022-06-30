@@ -1,9 +1,13 @@
 mod abi;
+mod block;
 mod pb;
 mod rpc;
 mod utils;
+
 use std::str::FromStr;
 
+use abi::factory::events::PairCreated;
+use block::Log;
 use hex_literal::hex;
 use num_bigint::BigUint;
 use pb::uniswap;
@@ -14,29 +18,45 @@ const FACTORY: [u8; 20] = hex!("5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f");
 
 substreams_ethereum::init!();
 
+trait Event: Sized {
+    fn match_log(log: &Log) -> bool;
+    fn decode(log: &Log) -> Result<Self, String>;
+
+    fn filter_map(log: &Log) -> Option<Self> {
+        if !Self::match_log(log) {
+            return None;
+        }
+        Some(Self::decode(log).unwrap())
+    }
+}
+
+impl Event for PairCreated {
+    fn match_log(log: &Log) -> bool {
+        PairCreated::match_log(log)
+    }
+    fn decode(log: &Log) -> Result<Self, String> {
+        PairCreated::decode(log)
+    }
+}
+
 #[substreams::handlers::map]
 fn map_pairs(block: eth::Block) -> Result<uniswap::Pairs, Error> {
-    let mut pairs = vec![];
-
-    for tx in block.transaction_traces {
-        pairs.extend(tx.receipt.unwrap().logs.iter().filter_map(|log| {
-            if log.address != FACTORY || !abi::factory::events::PairCreated::match_log(&log) {
-                return None;
-            }
-
-            let event = abi::factory::events::PairCreated::must_decode(&log);
-
+    let block = block::Block::make_static(block);
+    let pairs = block
+        .logs()
+        .filter(|log| log.address() == FACTORY)
+        .filter_map(|log| PairCreated::filter_map(&log).map(|e| (log, e)))
+        .map(|(log, event)| {
             log::info!("Pair created: 0x{}", Hex(&event.pair));
 
-            Some(uniswap::Pair {
+            uniswap::Pair {
                 address: event.pair,
                 token0: event.token0,
                 token1: event.token1,
-                ordinal: log.ordinal,
-            })
-        }));
-    }
-
+                ordinal: log.ordinal(),
+            }
+        })
+        .collect();
     Ok(uniswap::Pairs { pairs })
 }
 
